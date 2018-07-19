@@ -1,32 +1,27 @@
 package view;
 
 import model.Complex;
-import model.DataPoint;
 import model.FFT;
 
 import javax.swing.*;
 import java.awt.*;
-import java.io.BufferedWriter;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
 
 public class AudioRecognizerWindow extends JFrame {
-    private Map<Long, List<DataPoint>>  hashMap = new HashMap<>();
+    private Map<Long, List<DataPoint>> registerMap = new HashMap<>();
     private Map<Integer, Map<Integer, Integer>> matchMap; // Map<SongId, Map<Offset, Count>>
-    private long nrSong = 0;
+    private int nrSong = 0;
 
     private final int UPPER_LIMIT = 300;
     private final int LOWER_LIMIT = 40;
     private final int[] RANGE = new int[]{40, 80, 120, 180, UPPER_LIMIT + 1};
     private static final int FUZ_FACTOR = 2;
 
-    private void makeSpectrum(byte audio[], long songId, boolean isMatching) throws IOException {
+    private void makeSpectrum(byte audio[], int songId, boolean isMatching)  {
         final int totalSize = audio.length;
 
         int amountPossible = totalSize / 4096;
@@ -50,12 +45,8 @@ public class AudioRecognizerWindow extends JFrame {
 
 
 
-    private void determineKeyPoints(Complex[][] results, long songId, boolean isMatching) throws IOException {
+    private void determineKeyPoints(Complex[][] results, int songId, boolean isMatching)   {
         this.matchMap = new HashMap<>();
-
-        FileWriter fstream = new FileWriter("result.txt");
-
-        BufferedWriter outFile = new BufferedWriter(fstream);
 
         double[][] highscores = new double[results.length][5];
         for (int i = 0; i < results.length; i++) {
@@ -80,43 +71,26 @@ public class AudioRecognizerWindow extends JFrame {
 
         for (int t = 0; t < results.length; t++) {
             for (int freq = LOWER_LIMIT; freq < UPPER_LIMIT - 1; freq++) {
-                // Get the magnitude:
-                double mag = Math.log(results[t][freq].abs() + 1);
-
-                // Find out which range we are in:
-                int index = getIndex(freq);
-
+                double magnitude = Math.log(results[t][freq].abs() + 1);
+                int index = getRangeIndex(freq);
                 // Save the highest magnitude and corresponding frequency:
-                if (mag > highscores[t][index]) {
-                    highscores[t][index] = mag;
+                if (magnitude > highscores[t][index]) {
+                    highscores[t][index] = magnitude;
                     recordPoints[t][freq] = 1;
                     points[t][index] = freq;
                 }
             }
 
-            try {
-                for (int k = 0; k < 5; k++) {
-                    outFile.write("" + highscores[t][k] + ";"
-                            + recordPoints[t][k] + "\t");
-                }
-                outFile.write("\n");
-
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-
-            long h = hash(points[t][0], points[t][1], points[t][2],
-                    points[t][3]);
+            long hashKey = hash(points[t][0], points[t][1], points[t][2], points[t][3]);
 
             if (isMatching) {
-                List<DataPoint> listPoints;
-
-                if ((listPoints = hashMap.get(h)) != null) {
+                List<DataPoint> listPoints = registerMap.get(hashKey);
+                if (listPoints != null) {
                     for (DataPoint dP : listPoints) {
                         int offset = Math.abs(dP.getTime() - t);
                         Map<Integer, Integer> tmpMap = null;
                         if ((tmpMap = this.matchMap.get(dP.getSongId())) == null) {
-                            tmpMap = new HashMap<Integer, Integer>();
+                            tmpMap = new HashMap<>();
                             tmpMap.put(offset, 1);
                             matchMap.put(dP.getSongId(), tmpMap);
                         } else {
@@ -130,28 +104,13 @@ public class AudioRecognizerWindow extends JFrame {
                     }
                 }
             } else {
-                List<DataPoint> listPoints = null;
-                if ((listPoints = hashMap.get(h)) == null) {
-                    listPoints = new ArrayList<>();
-                    DataPoint point = new DataPoint((int) songId, t);
-                    listPoints.add(point);
-                    hashMap.put(h, listPoints);
-                } else {
-                    DataPoint point = new DataPoint((int) songId, t);
-                    listPoints.add(point);
-                }
+                List<DataPoint> listPoints = registerMap.computeIfAbsent(hashKey, k -> new ArrayList<>());
+                listPoints.add(new DataPoint(  songId, t));
             }
-        }
-        try {
-            outFile.close();
-        } catch (IOException e) {
-            e.printStackTrace();
         }
     }
 
-
-    // Find out in which range
-    private int getIndex(int freq) {
+    private int getRangeIndex(int freq) {
         int i = 0;
         while (RANGE[i] < freq)
             i++;
@@ -166,63 +125,61 @@ public class AudioRecognizerWindow extends JFrame {
 
     private void createWindow()   {
         this.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
-        Button buttonStart = new Button("Start");
+        Button buttonRegister = new Button("Register");
         Button buttonMatch = new Button("Match");
-        Button buttonStartMatch = new Button("Start Match");
         JTextField fileTextField = new JTextField(20);
-        fileTextField.setText("/home/wiktor/audio/billy.mp3");
+        fileTextField.setText("E:\\Projects-mine2\\playWithsound\\my1.pcm");
 
-        buttonStart.addActionListener(e -> {
+        buttonRegister.addActionListener(e -> {
             try {
                 byte[] audio = Files.readAllBytes(Paths.get(fileTextField.getText()));
                 makeSpectrum(audio, nrSong, false);
-            } catch (IOException e1) {
-                e1.printStackTrace();
-            }
-            nrSong++;
-        });
-
-        buttonStartMatch.addActionListener(e -> {
-            try {
-                byte[] audio = Files.readAllBytes(Paths.get(fileTextField.getText()));
-                makeSpectrum(audio, nrSong, true);
+                nrSong++;
             } catch (IOException e1) {
                 e1.printStackTrace();
             }
         });
 
         buttonMatch.addActionListener(e -> {
-            int bestCount = 0;
-            int bestSong = -1;
-
-            for (int id = 0; id < nrSong; id++) {
-                Map<Integer, Integer> tmpMap = matchMap.get(id);
-                int bestCountForSong = 0;
-
-                for (Map.Entry<Integer, Integer> entry : tmpMap.entrySet()) {
-                    if (entry.getValue() > bestCountForSong) {
-                        bestCountForSong = entry.getValue();
-                    }
-                    System.out.println("Time offset = " + entry.getKey()
-                            + ", Count = " + entry.getValue());
-                }
-
-                if (bestCountForSong > bestCount) {
-                    bestCount = bestCountForSong;
-                    bestSong = id;
-                }
+            try {
+                byte[] audio = Files.readAllBytes(Paths.get(fileTextField.getText()));
+                makeSpectrum(audio, 0, true);
+                printMatchMap();
+            } catch (IOException e1) {
+                e1.printStackTrace();
             }
-
-            System.out.println("Best song id: " + bestSong);
         });
 
-        this.add(buttonStart);
-        this.add(buttonStartMatch);
+        this.add(buttonRegister);
         this.add(buttonMatch);
         this.add(fileTextField);
         this.setLayout(new FlowLayout());
         this.setSize(300, 100);
         this.setVisible(true);
+    }
+
+    private void printMatchMap() {
+        int bestCount = 0;
+        int bestSongId = -1;
+
+        Set<Integer> keys = matchMap.keySet();
+        for (Integer key : keys) {
+            Map<Integer, Integer> tmpMap = matchMap.get(key);
+            int bestCountForSong = 0;
+
+            for (Map.Entry<Integer, Integer> entry : tmpMap.entrySet()) {
+                if (entry.getValue() > bestCountForSong) {
+                    bestCountForSong = entry.getValue();
+                }
+            }
+
+            if (bestCountForSong > bestCount) {
+                bestCount = bestCountForSong;
+                bestSongId = key;
+            }
+        }
+
+        System.out.println("Best song id: " + bestSongId);
     }
 
 
