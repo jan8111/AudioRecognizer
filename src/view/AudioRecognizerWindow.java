@@ -1,48 +1,19 @@
 package view;
 
-import java.awt.BorderLayout;
-import java.awt.Button;
-import java.awt.Color;
-import java.awt.Dimension;
-import java.awt.FlowLayout;
-import java.awt.Graphics;
-import java.awt.Graphics2D;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
-import java.io.BufferedWriter;
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.net.URL;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-
-import javax.sound.sampled.AudioFormat;
-import javax.sound.sampled.AudioInputStream;
-import javax.sound.sampled.AudioSystem;
-import javax.sound.sampled.DataLine;
-import javax.sound.sampled.LineUnavailableException;
-import javax.sound.sampled.SourceDataLine;
-import javax.sound.sampled.TargetDataLine;
-import javax.sound.sampled.UnsupportedAudioFileException;
-import javax.swing.JFrame;
-import javax.swing.JLabel;
-import javax.swing.JTextField;
-import javax.swing.SwingConstants;
-
 import model.Complex;
 import model.DataPoint;
 import model.FFT;
-
 import org.tritonus.sampled.convert.PCM2PCMConversionProvider;
-import org.tritonus.share.sampled.convert.*;
+
+import javax.sound.sampled.*;
+import javax.swing.*;
+import java.awt.*;
+import java.io.*;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class AudioRecognizerWindow extends JFrame {
 
@@ -142,67 +113,61 @@ public class AudioRecognizerWindow extends JFrame {
 		final long sId = songId;
 		final boolean isMatch = isMatching;
 
-		Thread listeningThread = new Thread(new Runnable() {
-			public void run() {
-				ByteArrayOutputStream out = new ByteArrayOutputStream();
-				running = true;
-				int n = 0;
-				byte[] buffer = new byte[(int) 1024];
+		Thread listeningThread = new Thread(() -> {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            running = true;
+            int n = 0;
+            byte[] buffer = new byte[(int) 1024];
 
-				try {
-					while (running) {
-						n++;
-						if (n > 1000)
-							break;
+            try {
+                while (running) {
+                    n++;
+                    if (n > 1000)
+                        break;
 
-						int count = 0;
-						if (isMicro) {
-							count = line.read(buffer, 0, 1024);
-						} else {
-							count = outDinSound.read(buffer, 0, 1024);
-						}
-						if (count > 0) {
-							out.write(buffer, 0, count);
-						}
-					}
+                    int count = 0;
+                    if (isMicro) {
+                        count = line.read(buffer, 0, 1024);
+                    } else {
+                        count = outDinSound.read(buffer, 0, 1024);
+                    }
+                    if (count > 0) {
+                        out.write(buffer, 0, count);
+                    }
+                }
 
-					byte b[] = out.toByteArray();
-					for (int i = 0; i < b.length; i++) {
-						System.out.println(b[i]);
-					}
+                byte b[] = out.toByteArray();
 
-					try {
-						makeSpectrum(out, sId, isMatch);
+                try {
+                    makeSpectrum(out.toByteArray(), sId, isMatch);
 
-						FileWriter fstream = new FileWriter("out.txt");
-						BufferedWriter outFile = new BufferedWriter(fstream);
+                    FileWriter fstream = new FileWriter("out.txt");
+                    BufferedWriter outFile = new BufferedWriter(fstream);
 
-						byte bytes[] = out.toByteArray();
-						for (int i = 0; i < b.length; i++) {
-							outFile.write("" + b[i] + ";");
-						}
-						outFile.close();
+                    byte bytes[] = out.toByteArray();
+                    for (int i = 0; i < b.length; i++) {
+                        outFile.write("" + b[i] + ";");
+                    }
+                    outFile.close();
 
-					} catch (Exception e) {
-						System.err.println("Error: " + e.getMessage());
-					}
+                } catch (Exception e) {
+                    System.err.println("Error: " + e.getMessage());
+                }
 
-					out.close();
-					line.close();
-				} catch (IOException e) {
-					System.err.println("I/O problems: " + e);
-					System.exit(-1);
-				}
+                out.close();
+                line.close();
+            } catch (IOException e) {
+                System.err.println("I/O problems: " + e);
+                System.exit(-1);
+            }
 
-			}
-
-		});
+        });
 
 		listeningThread.start();
 	}
 
-	void makeSpectrum(ByteArrayOutputStream out, long songId, boolean isMatching) {
-		byte audio[] = out.toByteArray();
+	private void makeSpectrum(byte audio[], long songId, boolean isMatching) {
+		//byte audio[] = out.toByteArray();
 
 		final int totalSize = audio.length;
 
@@ -223,26 +188,22 @@ public class AudioRecognizerWindow extends JFrame {
 			results[times] = FFT.fft(complex);
 		}
 		determineKeyPoints(results, songId, isMatching);
-		JFrame spectrumView = new SpectrumView(results, 4096, highscores,
-				recordPoints);
-		spectrumView.setVisible(true);
 	}
 
-	public final int UPPER_LIMIT = 300;
-	public final int LOWER_LIMIT = 40;
-
-	public final int[] RANGE = new int[] { 40, 80, 120, 180, UPPER_LIMIT + 1 };
+	private final int UPPER_LIMIT = 300;
+	private final int LOWER_LIMIT = 40;
+	private final int[] RANGE = new int[] { 40, 80, 120, 180, UPPER_LIMIT + 1 };
 
 	// Find out in which range
-	public int getIndex(int freq) {
+    private int getIndex(int freq) {
 		int i = 0;
 		while (RANGE[i] < freq)
 			i++;
 		return i;
 	}
 
-	void determineKeyPoints(Complex[][] results, long songId, boolean isMatching) {
-		this.matchMap = new HashMap<Integer, Map<Integer, Integer>>();
+	private void determineKeyPoints(Complex[][] results, long songId, boolean isMatching) {
+		this.matchMap = new HashMap<>();
 
 		FileWriter fstream = null;
 		try {
@@ -317,9 +278,9 @@ public class AudioRecognizerWindow extends JFrame {
 						} else {
 							Integer count = tmpMap.get(offset);
 							if (count == null) {
-								tmpMap.put(offset, new Integer(1));
+								tmpMap.put(offset, 1);
 							} else {
-								tmpMap.put(offset, new Integer(count + 1));
+								tmpMap.put(offset, count + 1);
 							}
 						}
 					}
@@ -344,7 +305,7 @@ public class AudioRecognizerWindow extends JFrame {
 		}
 	}
 
-	AudioRecognizerWindow(String windowName) {
+	private AudioRecognizerWindow(String windowName) {
 		super(windowName);
 	}
 
@@ -358,7 +319,7 @@ public class AudioRecognizerWindow extends JFrame {
 
 	public void createWindow() {
 
-		this.hashMap = new HashMap<Long, List<DataPoint>>();
+		this.hashMap = new HashMap<>();
 		this.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 		Button buttonStart = new Button("Start");
 		Button buttonStop = new Button("Stop");
@@ -369,80 +330,62 @@ public class AudioRecognizerWindow extends JFrame {
 
 		fileTextField.setText("/home/wiktor/audio/billy.mp3");
 
-		buttonStart.addActionListener(new ActionListener() {
-			public void actionPerformed(ActionEvent e) {
-				try {
-					try {
-						listenSound(nrSong, false);
-					} catch (IOException e1) {
-						e1.printStackTrace();
-					} catch (UnsupportedAudioFileException e1) {
-						e1.printStackTrace();
-					}
-					nrSong++;
-				} catch (LineUnavailableException ex) {
-					ex.printStackTrace();
-				}
-			}
-		});
+		buttonStart.addActionListener(e -> {
+            try {
+                try {
+                    listenSound(nrSong, false);
+                } catch (IOException | UnsupportedAudioFileException e1) {
+                    e1.printStackTrace();
+                }
+                nrSong++;
+            } catch (LineUnavailableException ex) {
+                ex.printStackTrace();
+            }
+        });
 
-		buttonStop.addActionListener(new ActionListener() {
-			public void actionPerformed(ActionEvent e) {
-				running = false;
-			}
-		});
+		buttonStop.addActionListener(e -> running = false);
 
-		buttonStartMatch.addActionListener(new ActionListener() {
-			public void actionPerformed(ActionEvent e) {
-				try {
-					try {
-						listenSound(nrSong, true);
-					} catch (IOException e1) {
-						e1.printStackTrace();
-					} catch (UnsupportedAudioFileException e1) {
-						e1.printStackTrace();
-					}
-				} catch (LineUnavailableException ex) {
-					ex.printStackTrace();
-				}
-			}
-		});
+		buttonStartMatch.addActionListener(e -> {
+            try {
+                try {
+                    listenSound(nrSong, true);
+                } catch (IOException | UnsupportedAudioFileException e1) {
+                    e1.printStackTrace();
+                }
+            } catch (LineUnavailableException ex) {
+                ex.printStackTrace();
+            }
+        });
 
-		buttonStopMatch.addActionListener(new ActionListener() {
-			public void actionPerformed(ActionEvent e) {
-				running = false;
-			}
-		});
+		buttonStopMatch.addActionListener(e -> running = false);
 
-		buttonMatch.addActionListener(new ActionListener() {
-			public void actionPerformed(ActionEvent e) {
-				List<DataPoint> listPoints;
-				int bestCount = 0;
-				int bestSong = -1;
+		buttonMatch.addActionListener(e -> {
+            List<DataPoint> listPoints;
+            int bestCount = 0;
+            int bestSong = -1;
 
-				for (int id = 0; id < nrSong; id++) {
+            for (int id = 0; id < nrSong; id++) {
 
-					System.out.println("For song id: " + id);
-					Map<Integer, Integer> tmpMap = matchMap.get(id);
-					int bestCountForSong = 0;
+                System.out.println("For song id: " + id);
+                Map<Integer, Integer> tmpMap = matchMap.get(id);
+                int bestCountForSong = 0;
 
-					for (Map.Entry<Integer, Integer> entry : tmpMap.entrySet()) {
-						if (entry.getValue() > bestCountForSong) {
-							bestCountForSong = entry.getValue();
-						}
-						System.out.println("Time offset = " + entry.getKey()
-								+ ", Count = " + entry.getValue());
-					}
+                for (Map.Entry<Integer, Integer> entry : tmpMap.entrySet()) {
+                    if (entry.getValue() > bestCountForSong) {
+                        bestCountForSong = entry.getValue();
+                    }
+                    System.out.println("Time offset = " + entry.getKey()
+                            + ", Count = " + entry.getValue());
+                }
 
-					if (bestCountForSong > bestCount) {
-						bestCount = bestCountForSong;
-						bestSong = id;
-					}
-				}
+                if (bestCountForSong > bestCount) {
+                    bestCount = bestCountForSong;
+                    bestSong = id;
+                }
+            }
 
-				System.out.println("Best song id: " + bestSong);
-			}
-		});
+            System.out.println("Best song id: " + bestSong);
+        });
 
 		this.add(buttonStart);
 		this.add(buttonStop);
@@ -454,4 +397,11 @@ public class AudioRecognizerWindow extends JFrame {
 		this.setSize(300, 100);
 		this.setVisible(true);
 	}
+
+	public static void main(String[] args) {
+		AudioRecognizerWindow audioWindow = new AudioRecognizerWindow(
+				"Audio Recognizer");
+		audioWindow.createWindow();
+	}
+
 }
